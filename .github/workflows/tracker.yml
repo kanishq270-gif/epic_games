@@ -1,0 +1,27 @@
+name: Epic Games Freebie Tracker
+
+on:
+  schedule:
+    - cron: '0 18 * * 4' # Automatically runs every Thursday at 6:00 PM UTC
+  workflow_dispatch: # Allows us to press a manual button to test it instantly
+
+jobs:
+  check-games:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Tracker Script
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
+        run: npm start
