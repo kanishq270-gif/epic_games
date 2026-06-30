@@ -24,4 +24,4 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
-        run: npm start
+        run: npx ts-node src/index.ts --telegram
