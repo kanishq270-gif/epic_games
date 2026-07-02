@@ -21,10 +21,9 @@ jobs:
           import os
           import html
 
-          # Query Epic Games Store API (with regional parameters)
+          # Query Epic Games Store API
           url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US'
           
-          # Browser-like headers to bypass 403 Forbidden CDN bot protections
           headers = {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Referer': 'https://store.epicgames.com/',
@@ -50,20 +49,41 @@ jobs:
                                   if discount.get('discountType') == 'PERCENTAGE' and discount.get('discountPercentage') == 0:
                                       title = item.get('title', 'Unknown Game')
                                       
-                                      # Resolve the game store URL slug
-                                      slug = item.get('productSlug') or item.get('urlSlug')
+                                      # Resolve the correct human-readable URL slug
+                                      slug = None
+                                      catalog_ns = item.get('catalogNs')
+                                      if catalog_ns:
+                                          mappings = catalog_ns.get('mappings')
+                                          if mappings:
+                                              # 1. Search mappings for 'productHome' page type
+                                              for mapping in mappings:
+                                                  if mapping.get('pageType') == 'productHome':
+                                                      slug = mapping.get('pageSlug')
+                                                      break
+                                              # 2. Fallback to the first mapping if productHome is not found
+                                              if not slug and len(mappings) > 0:
+                                                  slug = mappings[0].get('pageSlug')
+                                      
+                                      # 3. Fallback to productSlug or urlSlug
+                                      if not slug:
+                                          slug = item.get('productSlug') or item.get('urlSlug')
+                                      
+                                      # Clean slug if it contains /home (e.g. from fallback)
+                                      if slug and slug.endswith('/home'):
+                                          slug = slug[:-5]
+                                          
                                       if slug:
                                           game_url = f"https://store.epicgames.com/p/{slug}"
                                       else:
                                           game_url = "https://store.epicgames.com/free-games"
                                           
-                                      # Escape both title and URL to avoid HTML parsing errors (e.g., '&' in URLs)
+                                      # Format with safe HTML tags for Telegram
                                       games.append(f"🎮 <b>{html.escape(title)}</b>\n🔗 {html.escape(game_url)}")
                   
                   if games:
                       message = '🎁 <b>New Free Epic Games Available!</b>\n\n' + '\n\n'.join(games)
                       
-                      # Clean and sanitize the Telegram Token (removing common formatting issues)
+                      # Clean and sanitize the Telegram Token
                       raw_token = os.environ.get('TELEGRAM_TOKEN', '').strip()
                       token = raw_token.lstrip('/').replace('bot', '', 1).lstrip('/')
                       
