@@ -34,11 +34,10 @@ jobs:
           chat_id = os.environ.get('TELEGRAM_TO', '').strip()
           tele_url = f'https://api.telegram.org/bot{token}/sendMessage'
 
-          # 2. EXACT DAY REMINDER SYSTEM (Runs first so it appears above games)
+          # 2. EXACT DAY REMINDER SYSTEM
           try:
               last_commit_ts = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct']).strip())
               current_ts = int(time.time())
-              # Calculate exactly how many full days have passed
               days_since_commit = int((current_ts - last_commit_ts) / (60 * 60 * 24))
               
               messages_to_send = []
@@ -63,7 +62,7 @@ jobs:
           except Exception as e:
               print("Could not check git history for reminder:", e)
 
-          # 3. EPIC GAMES FETCH (ONLY THURSDAYS OR MANUAL CLICKS)
+          # 3. EPIC GAMES FETCH
           is_thursday = datetime.datetime.utcnow().weekday() == 3
           is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
 
@@ -125,7 +124,6 @@ jobs:
                                           else:
                                               price_text = "Free"
                                           
-                                          # --- ADDED SINGLE LINE GAPS HERE (\n\n) ---
                                           games.append(
                                               f"🎮 <b>{html.escape(title)}</b>\n\n"
                                               f"💰 Price: {price_text}\n\n"
@@ -133,8 +131,10 @@ jobs:
                                           )
                       
                       if games:
+                          # --- FLIP THE ORDER HERE ---
+                          games.reverse()
+                          
                           for game_card in games:
-                              # --- ADDED TWO LINE GAP HERE (\n\n\n) ---
                               message = '🎁 <b>New Free Epic Game Available!</b>\n\n\n' + game_card
                               
                               tele_payload = json.dumps({
