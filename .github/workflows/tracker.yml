@@ -16,6 +16,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import urllib.request
+          import urllib.error
           import json
           import os
           import html
@@ -56,15 +57,17 @@ jobs:
                                       else:
                                           game_url = "https://store.epicgames.com/free-games"
                                           
-                                      # Format with safe HTML tags for Telegram
-                                      games.append(f"🎮 <b>{html.escape(title)}</b>\n🔗 {game_url}")
+                                      # Escape both title and URL to avoid HTML parsing errors (e.g., '&' in URLs)
+                                      games.append(f"🎮 <b>{html.escape(title)}</b>\n🔗 {html.escape(game_url)}")
                   
                   if games:
                       message = '🎁 <b>New Free Epic Games Available!</b>\n\n' + '\n\n'.join(games)
                       
-                      # Send to Telegram API
-                      token = os.environ['TELEGRAM_TOKEN']
-                      chat_id = os.environ['TELEGRAM_TO']
+                      # Clean and sanitize the Telegram Token (removing common formatting issues)
+                      raw_token = os.environ.get('TELEGRAM_TOKEN', '').strip()
+                      token = raw_token.lstrip('/').replace('bot', '', 1).lstrip('/')
+                      
+                      chat_id = os.environ.get('TELEGRAM_TO', '').strip()
                       tele_url = f'https://api.telegram.org/bot{token}/sendMessage'
                       
                       tele_payload = json.dumps({
@@ -82,6 +85,12 @@ jobs:
                       print('Notification sent successfully!')
                   else:
                       print('No free games found right now.')
+          except urllib.error.HTTPError as e:
+              print(f'HTTP Error {e.code}: {e.reason}')
+              try:
+                  print(f'Response Body: {e.read().decode("utf-8")}')
+              except Exception:
+                  pass
           except Exception as e:
               print(f'Error occurred: {e}')
           EOF
