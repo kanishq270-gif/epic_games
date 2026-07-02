@@ -8,12 +8,7 @@ on:
 jobs:
   check-games:
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: write
-
     steps:
-      # --- NEW FIX: Checkout the code first ---
       - name: Checkout Repository
         uses: actions/checkout@v4
         
@@ -28,6 +23,8 @@ jobs:
           import json
           import os
           import html
+          import subprocess
+          import time
 
           url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=IN&allowCountries=IN'
           
@@ -114,6 +111,26 @@ jobs:
                           )
                           urllib.request.urlopen(tele_req)
                           
+                      # --- SMART TIMED REMINDER SYSTEM ---
+                      try:
+                          # Check how many days it has been since the last edit on GitHub
+                          last_commit_ts = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct']).strip())
+                          current_ts = int(time.time())
+                          days_since_commit = (current_ts - last_commit_ts) / (60 * 60 * 24)
+                          
+                          # ONLY send the reminder message if it's been 50 days or more
+                          if days_since_commit >= 50:
+                              reminder_msg = f'⏰ <b>G - Reset</b>\n<i>It has been {int(days_since_commit)} days since your last GitHub activity. Please go to your repository and make a tiny edit so the bot does not pause!</i>'
+                              reminder_payload = json.dumps({
+                                  'chat_id': chat_id,
+                                  'text': reminder_msg,
+                                  'parse_mode': 'HTML'
+                              }).encode('utf-8')
+                              urllib.request.urlopen(urllib.request.Request(tele_url, data=reminder_payload, headers={'Content-Type': 'application/json'}))
+                      except Exception as e:
+                          print("Could not check git history for reminder:", e)
+                      # -----------------------------------
+                          
                       print('Notifications sent successfully!')
                   else:
                       print('No free games found right now.')
@@ -122,6 +139,3 @@ jobs:
           except Exception as e:
               print(f'Error occurred: {e}')
           EOF
-
-      - name: Keepalive Workflow
-        uses: gautamkrishnar/keepalive-workflow@v2
