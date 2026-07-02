@@ -20,9 +20,18 @@ jobs:
           import os
           import html
 
-          # Query Epic Games Store API (US region parameters help ensure consistent freebie list)
+          # Query Epic Games Store API (with regional parameters)
           url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US'
-          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+          
+          # Browser-like headers to bypass 403 Forbidden CDN bot protections
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://store.epicgames.com/',
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+          }
+          
+          req = urllib.request.Request(url, headers=headers)
           
           try:
               with urllib.request.urlopen(req) as response:
@@ -33,7 +42,7 @@ jobs:
                   for item in elements:
                       promotions = item.get('promotions')
                       if promotions and promotions.get('promotionalOffers'):
-                          # Loop through offers to verify if the game is free (0% price / 100% discount)
+                          # Loop through the active promotions to find free items (100% discount / 0 price)
                           for promo_group in promotions['promotionalOffers']:
                               for offer in promo_group.get('promotionalOffers', []):
                                   discount = offer.get('discountSetting', {})
@@ -47,7 +56,7 @@ jobs:
                                       else:
                                           game_url = "https://store.epicgames.com/free-games"
                                           
-                                      # Safely escape the title and format as HTML for Telegram
+                                      # Format with safe HTML tags for Telegram
                                       games.append(f"🎮 <b>{html.escape(title)}</b>\n🔗 {game_url}")
                   
                   if games:
