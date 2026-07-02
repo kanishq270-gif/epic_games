@@ -14,13 +14,14 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
         run: |
-          python3 -c "
+          python3 - <<'EOF'
           import urllib.request
           import json
           import os
+          import html
 
-          # Query Epic Games Store API
-          url = 'https://epicgames.com'
+          # Query Epic Games Store API (US region parameters help ensure consistent freebie list)
+          url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US'
           req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
           
           try:
@@ -32,25 +33,46 @@ jobs:
                   for item in elements:
                       promotions = item.get('promotions')
                       if promotions and promotions.get('promotionalOffers'):
-                          offers = promotions['promotionalOffers'][0]['promotionalOffers']
-                          for offer in offers:
-                              if offer.get('discountSetting', {}).get('discountType') == 'PERCENTAGE' and offer.get('discountSetting', {}).get('discountPercentage') == 0:
-                                  games.append(f\"🎮 *{item['title']}*\n🔗 https://epicgames.com{item.get('productSlug', item['urlSlug'] if item.get('urlSlug') else '')}\")
+                          # Loop through offers to verify if the game is free (0% price / 100% discount)
+                          for promo_group in promotions['promotionalOffers']:
+                              for offer in promo_group.get('promotionalOffers', []):
+                                  discount = offer.get('discountSetting', {})
+                                  if discount.get('discountType') == 'PERCENTAGE' and discount.get('discountPercentage') == 0:
+                                      title = item.get('title', 'Unknown Game')
+                                      
+                                      # Resolve the game store URL slug
+                                      slug = item.get('productSlug') or item.get('urlSlug')
+                                      if slug:
+                                          game_url = f"https://store.epicgames.com/p/{slug}"
+                                      else:
+                                          game_url = "https://store.epicgames.com/free-games"
+                                          
+                                      # Safely escape the title and format as HTML for Telegram
+                                      games.append(f"🎮 <b>{html.escape(title)}</b>\n🔗 {game_url}")
                   
                   if games:
-                      message = '🎁 *New Free Epic Games Available\!*\n\n' + '\n\n'.join(games)
+                      message = '🎁 <b>New Free Epic Games Available!</b>\n\n' + '\n\n'.join(games)
                       
-                      # Send to Telegram Webhook
+                      # Send to Telegram API
                       token = os.environ['TELEGRAM_TOKEN']
                       chat_id = os.environ['TELEGRAM_TO']
-                      tele_url = f'https://telegram.org{token}/sendMessage'
-                      tele_data = json.dumps({'chat_id': chat_id, 'text': message, 'parse_mode': 'MarkdownV2'}).encode('utf-8')
+                      tele_url = f'https://api.telegram.org/bot{token}/sendMessage'
                       
-                      tele_req = urllib.request.Request(tele_url, data=tele_data, headers={'Content-Type': 'application/json'})
+                      tele_payload = json.dumps({
+                          'chat_id': chat_id, 
+                          'text': message, 
+                          'parse_mode': 'HTML'
+                      }).encode('utf-8')
+                      
+                      tele_req = urllib.request.Request(
+                          tele_url, 
+                          data=tele_payload, 
+                          headers={'Content-Type': 'application/json'}
+                      )
                       urllib.request.urlopen(tele_req)
                       print('Notification sent successfully!')
                   else:
                       print('No free games found right now.')
           except Exception as e:
               print(f'Error occurred: {e}')
-          "
+          EOF
