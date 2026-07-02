@@ -8,6 +8,11 @@ on:
 jobs:
   check-games:
     runs-on: ubuntu-latest
+    
+    # We add write permissions so the bot is allowed to make the automatic keepalive commit
+    permissions:
+      contents: write
+
     steps:
       - name: Fetch Epic Games and Send to Telegram
         env:
@@ -125,3 +130,7 @@ jobs:
           except Exception as e:
               print(f'Error occurred: {e}')
           EOF
+
+      # --- NEW CODE: AUTOMATIC KEEPALIVE ---
+      - name: Keepalive Workflow
+        uses: gautamkrishnar/keepalive-workflow@v2
