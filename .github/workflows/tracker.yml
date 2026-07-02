@@ -2,18 +2,21 @@ name: Epic Games Freebie Tracker
 
 on:
   schedule:
-    - cron: '0 18 * * 4' # Automatically runs every Thursday at 6:00 PM UTC
-  workflow_dispatch: # Manual test button
+    - cron: '0 18 * * 4'
+  workflow_dispatch:
 
 jobs:
   check-games:
     runs-on: ubuntu-latest
     
-    # We add write permissions so the bot is allowed to make the automatic keepalive commit
     permissions:
       contents: write
 
     steps:
+      # --- NEW FIX: Checkout the code first ---
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
       - name: Fetch Epic Games and Send to Telegram
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -26,7 +29,6 @@ jobs:
           import os
           import html
 
-          # Query Epic Games Store API (configured for Indian region/INR pricing)
           url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=IN&allowCountries=IN'
           
           headers = {
@@ -47,14 +49,12 @@ jobs:
                   for item in elements:
                       promotions = item.get('promotions')
                       if promotions and promotions.get('promotionalOffers'):
-                          # Loop through active promotions to find free items
                           for promo_group in promotions['promotionalOffers']:
                               for offer in promo_group.get('promotionalOffers', []):
                                   discount = offer.get('discountSetting', {})
                                   if discount.get('discountType') == 'PERCENTAGE' and discount.get('discountPercentage') == 0:
                                       title = item.get('title', 'Unknown Game')
                                       
-                                      # Resolve the correct human-readable URL slug
                                       slug = None
                                       catalog_ns = item.get('catalogNs')
                                       if catalog_ns:
@@ -78,7 +78,6 @@ jobs:
                                       else:
                                           game_url = "https://store.epicgames.com/free-games"
                                           
-                                      # Resolve original price and format it simply (e.g. Price: ₹359.00)
                                       price_info = item.get('price', {}).get('totalPrice', {}).get('fmtPrice', {})
                                       orig_price = price_info.get('originalPrice')
                                       
@@ -87,7 +86,6 @@ jobs:
                                       else:
                                           price_text = "Free"
                                       
-                                      # Format each game's card details
                                       games.append(
                                           f"🎮 <b>{html.escape(title)}</b>\n"
                                           f"💰 Price: {price_text}\n"
@@ -95,13 +93,11 @@ jobs:
                                       )
                   
                   if games:
-                      # Clean and sanitize the Telegram Token
                       raw_token = os.environ.get('TELEGRAM_TOKEN', '').strip()
                       token = raw_token.lstrip('/').replace('bot', '', 1).lstrip('/')
                       chat_id = os.environ.get('TELEGRAM_TO', '').strip()
                       tele_url = f'https://api.telegram.org/bot{token}/sendMessage'
                       
-                      # Send a separate message for each game to guarantee images for all links
                       for game_card in games:
                           message = '🎁 <b>New Free Epic Game Available!</b>\n\n' + game_card
                           
@@ -123,14 +119,9 @@ jobs:
                       print('No free games found right now.')
           except urllib.error.HTTPError as e:
               print(f'HTTP Error {e.code}: {e.reason}')
-              try:
-                  print(f'Response Body: {e.read().decode("utf-8")}')
-              except Exception:
-                  pass
           except Exception as e:
               print(f'Error occurred: {e}')
           EOF
 
-      # --- NEW CODE: AUTOMATIC KEEPALIVE ---
       - name: Keepalive Workflow
         uses: gautamkrishnar/keepalive-workflow@v2
