@@ -2,7 +2,7 @@ name: Epic Games Freebie Tracker
 
 on:
   schedule:
-    - cron: '0 18 * * 4'
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,10 +12,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         
-      - name: Fetch Epic Games and Send to Telegram
+      - name: Fetch Epic Games and Check Reminders
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           python3 - <<'EOF'
           import urllib.request
@@ -25,117 +26,135 @@ jobs:
           import html
           import subprocess
           import time
+          import datetime
 
-          url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=IN&allowCountries=IN'
-          
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'https://store.epicgames.com/',
-              'Accept': 'application/json',
-              'Accept-Language': 'en-US,en;q=0.9',
-          }
-          
-          req = urllib.request.Request(url, headers=headers)
-          
+          # 1. Setup Telegram Variables
+          raw_token = os.environ.get('TELEGRAM_TOKEN', '').strip()
+          token = raw_token.lstrip('/').replace('bot', '', 1).lstrip('/')
+          chat_id = os.environ.get('TELEGRAM_TO', '').strip()
+          tele_url = f'https://api.telegram.org/bot{token}/sendMessage'
+
+          # 2. EXACT DAY REMINDER SYSTEM (Runs first so it appears above games)
           try:
-              with urllib.request.urlopen(req) as response:
-                  data = json.loads(response.read().decode())
-                  elements = data['data']['Catalog']['searchStore']['elements']
+              last_commit_ts = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct']).strip())
+              current_ts = int(time.time())
+              # Calculate exactly how many full days have passed
+              days_since_commit = int((current_ts - last_commit_ts) / (60 * 60 * 24))
+              
+              messages_to_send = []
+              if days_since_commit == 60:
+                  messages_to_send.append('🚨 <b>LD - Reset</b>')
+                  messages_to_send.append('🚨 <b>LD - Reset</b>')
+                  messages_to_send.append('🚨 <b>LD - Reset</b>')
+              elif days_since_commit == 59:
+                  messages_to_send.append('🟠 <b>LDT - 60</b>')
+                  messages_to_send.append('🟠 G - Reset')
+              elif days_since_commit == 50:
+                  messages_to_send.append('🟡 G - Reset')
                   
-                  games = []
-                  for item in elements:
-                      promotions = item.get('promotions')
-                      if promotions and promotions.get('promotionalOffers'):
-                          for promo_group in promotions['promotionalOffers']:
-                              for offer in promo_group.get('promotionalOffers', []):
-                                  discount = offer.get('discountSetting', {})
-                                  if discount.get('discountType') == 'PERCENTAGE' and discount.get('discountPercentage') == 0:
-                                      title = item.get('title', 'Unknown Game')
-                                      
-                                      slug = None
-                                      catalog_ns = item.get('catalogNs')
-                                      if catalog_ns:
-                                          mappings = catalog_ns.get('mappings')
-                                          if mappings:
-                                              for mapping in mappings:
-                                                  if mapping.get('pageType') == 'productHome':
-                                                      slug = mapping.get('pageSlug')
-                                                      break
-                                              if not slug and len(mappings) > 0:
-                                                  slug = mappings[0].get('pageSlug')
-                                      
-                                      if not slug:
-                                          slug = item.get('productSlug') or item.get('urlSlug')
-                                      
-                                      if slug and slug.endswith('/home'):
-                                          slug = slug[:-5]
-                                          
-                                      if slug:
-                                          game_url = f"https://store.epicgames.com/p/{slug}"
-                                      else:
-                                          game_url = "https://store.epicgames.com/free-games"
-                                          
-                                      price_info = item.get('price', {}).get('totalPrice', {}).get('fmtPrice', {})
-                                      orig_price = price_info.get('originalPrice')
-                                      
-                                      if orig_price and orig_price not in ('$0.00', '₹0.00', '0', 'Free'):
-                                          price_text = html.escape(orig_price)
-                                      else:
-                                          price_text = "Free"
-                                      
-                                      games.append(
-                                          f"🎮 <b>{html.escape(title)}</b>\n"
-                                          f"💰 Price: {price_text}\n"
-                                          f"🔗 {html.escape(game_url)}"
-                                      )
+              for msg in messages_to_send:
+                  reminder_payload = json.dumps({
+                      'chat_id': chat_id,
+                      'text': msg,
+                      'parse_mode': 'HTML'
+                  }).encode('utf-8')
+                  urllib.request.urlopen(urllib.request.Request(tele_url, data=reminder_payload, headers={'Content-Type': 'application/json'}))
                   
-                  if games:
-                      raw_token = os.environ.get('TELEGRAM_TOKEN', '').strip()
-                      token = raw_token.lstrip('/').replace('bot', '', 1).lstrip('/')
-                      chat_id = os.environ.get('TELEGRAM_TO', '').strip()
-                      tele_url = f'https://api.telegram.org/bot{token}/sendMessage'
+          except Exception as e:
+              print("Could not check git history for reminder:", e)
+
+          # 3. EPIC GAMES FETCH (ONLY THURSDAYS OR MANUAL CLICKS)
+          is_thursday = datetime.datetime.utcnow().weekday() == 3
+          is_manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+
+          if is_thursday or is_manual:
+              url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=IN&allowCountries=IN'
+              
+              headers = {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer': 'https://store.epicgames.com/',
+                  'Accept': 'application/json',
+                  'Accept-Language': 'en-US,en;q=0.9',
+              }
+              
+              req = urllib.request.Request(url, headers=headers)
+              
+              try:
+                  with urllib.request.urlopen(req) as response:
+                      data = json.loads(response.read().decode())
+                      elements = data['data']['Catalog']['searchStore']['elements']
                       
-                      for game_card in games:
-                          message = '🎁 <b>New Free Epic Game Available!</b>\n\n' + game_card
-                          
-                          tele_payload = json.dumps({
-                              'chat_id': chat_id, 
-                              'text': message, 
-                              'parse_mode': 'HTML'
-                          }).encode('utf-8')
-                          
-                          tele_req = urllib.request.Request(
-                              tele_url, 
-                              data=tele_payload, 
-                              headers={'Content-Type': 'application/json'}
-                          )
-                          urllib.request.urlopen(tele_req)
-                          
-                      # --- SMART TIMED REMINDER SYSTEM ---
-                      try:
-                          # Check how many days it has been since the last edit on GitHub
-                          last_commit_ts = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct']).strip())
-                          current_ts = int(time.time())
-                          days_since_commit = (current_ts - last_commit_ts) / (60 * 60 * 24)
-                          
-                          # ONLY send the reminder message if it's been 50 days or more
-                          if days_since_commit >= 50:
-                              reminder_msg = f'⏰ <b>G - Reset</b>\n<i>It has been {int(days_since_commit)} days since your last GitHub activity. Please go to your repository and make a tiny edit so the bot does not pause!</i>'
-                              reminder_payload = json.dumps({
-                                  'chat_id': chat_id,
-                                  'text': reminder_msg,
+                      games = []
+                      for item in elements:
+                          promotions = item.get('promotions')
+                          if promotions and promotions.get('promotionalOffers'):
+                              for promo_group in promotions['promotionalOffers']:
+                                  for offer in promo_group.get('promotionalOffers', []):
+                                      discount = offer.get('discountSetting', {})
+                                      if discount.get('discountType') == 'PERCENTAGE' and discount.get('discountPercentage') == 0:
+                                          title = item.get('title', 'Unknown Game')
+                                          
+                                          slug = None
+                                          catalog_ns = item.get('catalogNs')
+                                          if catalog_ns:
+                                              mappings = catalog_ns.get('mappings')
+                                              if mappings:
+                                                  for mapping in mappings:
+                                                      if mapping.get('pageType') == 'productHome':
+                                                          slug = mapping.get('pageSlug')
+                                                          break
+                                                  if not slug and len(mappings) > 0:
+                                                      slug = mappings[0].get('pageSlug')
+                                          
+                                          if not slug:
+                                              slug = item.get('productSlug') or item.get('urlSlug')
+                                          
+                                          if slug and slug.endswith('/home'):
+                                              slug = slug[:-5]
+                                          
+                                          if slug:
+                                              game_url = f"https://store.epicgames.com/p/{slug}"
+                                          else:
+                                              game_url = "https://store.epicgames.com/free-games"
+                                              
+                                          price_info = item.get('price', {}).get('totalPrice', {}).get('fmtPrice', {})
+                                          orig_price = price_info.get('originalPrice')
+                                          
+                                          if orig_price and orig_price not in ('$0.00', '₹0.00', '0', 'Free'):
+                                              price_text = html.escape(orig_price)
+                                          else:
+                                              price_text = "Free"
+                                          
+                                          games.append(
+                                              f"🎮 <b>{html.escape(title)}</b>\n"
+                                              f"💰 Price: {price_text}\n"
+                                              f"🔗 {html.escape(game_url)}"
+                                          )
+                      
+                      if games:
+                          for game_card in games:
+                              message = '🎁 <b>New Free Epic Game Available!</b>\n\n' + game_card
+                              
+                              tele_payload = json.dumps({
+                                  'chat_id': chat_id, 
+                                  'text': message, 
                                   'parse_mode': 'HTML'
                               }).encode('utf-8')
-                              urllib.request.urlopen(urllib.request.Request(tele_url, data=reminder_payload, headers={'Content-Type': 'application/json'}))
-                      except Exception as e:
-                          print("Could not check git history for reminder:", e)
-                      # -----------------------------------
-                          
-                      print('Notifications sent successfully!')
-                  else:
-                      print('No free games found right now.')
-          except urllib.error.HTTPError as e:
-              print(f'HTTP Error {e.code}: {e.reason}')
-          except Exception as e:
-              print(f'Error occurred: {e}')
+                              
+                              tele_req = urllib.request.Request(
+                                  tele_url, 
+                                  data=tele_payload, 
+                                  headers={'Content-Type': 'application/json'}
+                              )
+                              urllib.request.urlopen(tele_req)
+                              
+                          print('Free game notifications sent successfully!')
+                      else:
+                          print('No free games found right now.')
+              except urllib.error.HTTPError as e:
+                  print(f'HTTP Error {e.code}: {e.reason}')
+              except Exception as e:
+                  print(f'Error occurred: {e}')
+          else:
+              print('Today is not Thursday. Skipping Epic Games check (only checked reminders).')
           EOF
